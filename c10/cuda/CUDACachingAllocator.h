@@ -68,7 +68,7 @@ struct DeviceStats {
   // released via cudaFree)
   StatArray inactive_split;
 
-  // SUM: bytes requested by client code
+  // SUM: bytes allocated by this memory alocator
   StatArray allocated_bytes;
   // SUM: bytes reserved by this memory allocator (both free and used)
   StatArray reserved_bytes;
@@ -76,6 +76,8 @@ struct DeviceStats {
   StatArray active_bytes;
   // SUM: bytes within inactive, split memory blocks
   StatArray inactive_split_bytes;
+  // SUM: bytes requested by client code
+  StatArray requested_bytes;
 
   // COUNT: total number of failed calls to CUDA malloc necessitating cache
   // flushes.
@@ -94,22 +96,19 @@ struct DeviceStats {
   int64_t max_split_size = 0;
 };
 
-struct Context {
-  virtual ~Context() {}
-};
-
-typedef std::shared_ptr<Context> (*CreateContextFn)(void);
+typedef std::shared_ptr<GatheredContext> (*CreateContextFn)(void);
 
 struct History {
   void* addr;
   size_t real_size; // unrounded, actually requested size
-  std::shared_ptr<Context> context; // per-watcher context
+  std::shared_ptr<GatheredContext> context; // per-watcher context
 };
 
 // Struct containing info of an allocation block (i.e. a fractional part of a
 // cudaMalloc)..
 struct BlockInfo {
   int64_t size = 0;
+  int64_t requested_size = 0;
   int32_t gc_counter = 0;
   bool allocated = false;
   bool active = false;
@@ -121,6 +120,7 @@ struct SegmentInfo {
   int64_t device = 0;
   int64_t address = 0;
   int64_t total_size = 0;
+  int64_t requested_size = 0;
   int64_t allocated_size = 0;
   int64_t active_size = 0;
   cudaStream_t stream = 0;
@@ -148,15 +148,15 @@ struct TraceEntry {
       int64_t addr,
       size_t size,
       cudaStream_t stream,
-      std::shared_ptr<Context> context = nullptr)
+      std::shared_ptr<GatheredContext> context = nullptr)
       : action_(action),
         addr_(addr),
-        context_(context),
+        context_(std::move(context)),
         stream_(stream),
         size_(size) {}
   Action action_;
   int64_t addr_; // for OOM, this is the amount of free bytes reported by cuda
-  std::shared_ptr<Context> context_;
+  std::shared_ptr<GatheredContext> context_;
   cudaStream_t stream_;
   int64_t size_;
 };
